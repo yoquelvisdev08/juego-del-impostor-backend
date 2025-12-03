@@ -1,0 +1,43 @@
+{
+  "name": "juego-del-impostor-backend",
+  "version": "1.0.0",
+  "description": "Backend server for El Impostor Online game",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "type-check": "tsc --noEmit",
+    "get-collections": "tsx scripts/get-collections.ts",
+    "verify-appwrite": "tsx scripts/verify-appwrite-optimized.ts",
+    "verify-strict": "tsx scripts/verify-strict-appwrite.ts",
+    "recreate-collections": "tsx scripts/recreate-collections.ts",
+    "test-connection": "tsx scripts/test-connection.ts"
+  },
+  "keywords": [
+    "game",
+    "websocket",
+    "socket.io",
+    "appwrite",
+    "redis"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ioredis": "^5.3.2",
+    "node-appwrite": "^20.3.0",
+    "socket.io": "^4.7.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.4",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}
