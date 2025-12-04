@@ -10,20 +10,34 @@ import { redis } from "./config/redis"
 const app = express()
 const httpServer = createServer(app)
 
+// Configurar CORS para múltiples orígenes
+const corsOrigin = process.env.CORS_ORIGIN || "http://localhost:3000"
+const allowedOrigins = corsOrigin.split(",").map((origin) => origin.trim())
+
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Permitir requests sin origin (como Postman o curl)
+    if (!origin) return callback(null, true)
+    
+    // Verificar si el origin está en la lista permitida
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error("Not allowed by CORS"))
+    }
+  },
+  credentials: true,
+}
+
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true,
   },
 })
 
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-    credentials: true,
-  }),
-)
+app.use(cors(corsOptions))
 
 app.use(express.json())
 
@@ -83,7 +97,7 @@ const PORT = process.env.PORT || 3001
 
 httpServer.listen(PORT, () => {
   console.log(`[Server] Servidor corriendo en puerto ${PORT}`)
-  console.log(`[Server] CORS habilitado para: ${process.env.CORS_ORIGIN || "http://localhost:3000"}`)
+  console.log(`[Server] CORS habilitado para: ${allowedOrigins.join(", ")}`)
   console.log(`[Server] Entorno: ${process.env.NODE_ENV || "development"}`)
 })
 
