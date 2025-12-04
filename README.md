@@ -58,6 +58,22 @@ pnpm build
 pnpm start
 ```
 
+## Despliegue
+
+### Digital Ocean
+
+Para desplegar en Digital Ocean, consulta la [guía completa de despliegue](./DEPLOY_DIGITALOCEAN.md).
+
+**Opciones disponibles:**
+- **App Platform** (Recomendado): Despliegue automático desde GitHub
+- **Droplet con Docker**: Mayor control sobre el servidor
+- **Docker Compose**: Para desarrollo/producción simple
+
+**Archivos de configuración incluidos:**
+- `.do/app.yaml` - Configuración para App Platform
+- `Dockerfile` - Imagen Docker para despliegue
+- `docker-compose.yml` - Orquestación con Docker Compose
+
 ## Endpoints API
 
 ### POST /api/games

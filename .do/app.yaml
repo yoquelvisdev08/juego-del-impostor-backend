@@ -1,0 +1,74 @@
+name: juego-del-impostor-backend
+region: nyc
+
+services:
+  - name: api
+    github:
+      repo: tu-usuario/juego-del-impostor-backend
+      branch: main
+      deploy_on_push: true
+    run_command: pnpm start
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 3001
+    health_check:
+      http_path: /health
+    envs:
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      - key: PORT
+        value: "3001"
+        scope: RUN_TIME
+      - key: APPWRITE_ENDPOINT
+        value: ${APPWRITE_ENDPOINT}
+        scope: RUN_TIME
+        type: SECRET
+      - key: APPWRITE_PROJECT_ID
+        value: ${APPWRITE_PROJECT_ID}
+        scope: RUN_TIME
+        type: SECRET
+      - key: APPWRITE_API_KEY
+        value: ${APPWRITE_API_KEY}
+        scope: RUN_TIME
+        type: SECRET
+      - key: APPWRITE_DATABASE_ID
+        value: ${APPWRITE_DATABASE_ID}
+        scope: RUN_TIME
+        type: SECRET
+      - key: APPWRITE_GAMES_COLLECTION_ID
+        value: ${APPWRITE_GAMES_COLLECTION_ID}
+        scope: RUN_TIME
+        type: SECRET
+      - key: APPWRITE_PLAYERS_COLLECTION_ID
+        value: ${APPWRITE_PLAYERS_COLLECTION_ID}
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_HOST
+        value: ${REDIS_HOST}
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_PORT
+        value: ${REDIS_PORT}
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_PASSWORD
+        value: ${REDIS_PASSWORD}
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_TLS
+        value: ${REDIS_TLS}
+        scope: RUN_TIME
+        type: SECRET
+      - key: CORS_ORIGIN
+        value: ${CORS_ORIGIN}
+        scope: RUN_TIME
+        type: SECRET
+      - key: GEMINI_API_KEY
+        value: ${GEMINI_API_KEY}
+        scope: RUN_TIME
+        type: SECRET
+    build_command: pnpm install && pnpm build
+
+
