@@ -1,7 +1,6 @@
 import { databases, APPWRITE_CONFIG } from "../config/appwrite"
 import { redis } from "../config/redis"
 import type { GameState, Player, PlayerColor } from "../types"
-import { WordsService } from "./words-service"
 
 const AVAILABLE_COLORS: PlayerColor[] = [
   "red",

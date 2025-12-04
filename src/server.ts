@@ -41,7 +41,7 @@ app.use(cors(corsOptions))
 
 app.use(express.json())
 
-app.get("/health", (req, res) => {
+app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: Date.now() })
 })
 
@@ -54,10 +54,10 @@ app.post("/api/games", async (req, res) => {
     }
 
     const game = await GameService.createGame(hostId, hostName)
-    res.json(game)
+    return res.json(game)
   } catch (error: any) {
     console.error("[API] Error creating game:", error)
-    res.status(500).json({ error: error.message || "Error al crear la partida" })
+    return res.status(500).json({ error: error.message || "Error al crear la partida" })
   }
 })
 
@@ -70,10 +70,10 @@ app.get("/api/games/:code", async (req, res) => {
       return res.status(404).json({ error: "Partida no encontrada" })
     }
 
-    res.json(game)
+    return res.json(game)
   } catch (error: any) {
     console.error("[API] Error getting game:", error)
-    res.status(500).json({ error: error.message || "Error al obtener la partida" })
+    return res.status(500).json({ error: error.message || "Error al obtener la partida" })
   }
 })
 

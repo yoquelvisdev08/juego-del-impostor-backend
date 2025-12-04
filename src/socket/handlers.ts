@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io"
 import { GameService } from "../services/game-service"
 import { GameLogic } from "../services/game-logic"
 import { TimerService } from "../services/timer-service"
-import type { GameAction, SocketData, GameState } from "../types"
+import type { GameAction, SocketData, GameState, Player } from "../types"
 import { redis } from "../config/redis"
 
 export class SocketHandlers {
@@ -40,7 +40,7 @@ export class SocketHandlers {
           }
 
           const availableColor = GameService.getAvailableColorForPlayer(game.players)
-          const newPlayer = {
+          const newPlayer: Player = {
             id: playerId,
             name: playerName,
             color: availableColor,
@@ -359,7 +359,7 @@ export class SocketHandlers {
     // Detener timer antes de procesar
     TimerService.stopTimer(gameCode)
 
-    const { ejectedPlayer, isTie, winner } = GameLogic.processVotes(game)
+    const { winner } = GameLogic.processVotes(game)
 
     if (winner) {
       // Ronda terminada

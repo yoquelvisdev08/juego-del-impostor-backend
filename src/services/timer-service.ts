@@ -83,7 +83,7 @@ export class TimerService {
 
       case "votacion": {
         // Procesar votos automáticamente
-        const { ejectedPlayer, isTie, winner } = GameLogic.processVotes(game)
+        const { winner } = GameLogic.processVotes(game)
 
         if (winner) {
           // Ronda terminada
