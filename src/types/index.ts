@@ -47,7 +47,6 @@ export interface GameState {
   discussionTime: number // tiempo para fase de discusión (segundos)
   votingTime: number // tiempo para fase de votación (segundos)
   timeLeft: number // tiempo restante en la fase actual
-  changeImpostorEachRound: boolean // si el impostor cambia cada ronda
   winner?: "players" | "impostor"
   createdAt: number
 }
@@ -70,7 +69,7 @@ export type GameAction =
   | { type: "word-guessed"; playerId: string; guessedWord: string; correct: boolean }
   | { type: "round-ended"; winner: "players" | "impostor" }
   | { type: "game-ended"; winner: "players" | "impostor" }
-  | { type: "settings-updated"; maxRounds: number; cluesTime: number; discussionTime: number; votingTime: number; changeImpostorEachRound?: boolean }
+  | { type: "settings-updated"; maxRounds: number; cluesTime: number; discussionTime: number; votingTime: number }
   | { type: "next-round" }
 
 export interface SocketData {

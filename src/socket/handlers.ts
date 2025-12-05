@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io"
 import { GameService } from "../services/game-service"
 import { GameLogic } from "../services/game-logic"
 import { TimerService } from "../services/timer-service"
-import type { GameAction, SocketData, GameState, Player } from "../types"
+import type { GameAction, SocketData, GameState } from "../types"
 import { redis } from "../config/redis"
 
 export class SocketHandlers {
@@ -40,7 +40,7 @@ export class SocketHandlers {
           }
 
           const availableColor = GameService.getAvailableColorForPlayer(game.players)
-          const newPlayer: Player = {
+          const newPlayer = {
             id: playerId,
             name: playerName,
             color: availableColor,
@@ -48,14 +48,6 @@ export class SocketHandlers {
             hasGivenClue: false,
             hasVoted: false,
             points: 0,
-          }
-
-          // Si el juego está en fase "resultados", asignar un rol temporal
-          // El rol se reasignará en la siguiente ronda, pero al menos tendrá uno
-          if (game.phase === "resultados" && game.impostorId) {
-            // Asignar rol temporal: la mayoría serán "player", pero algunos podrían ser impostor
-            // Para mantener el balance, asignamos "player" por defecto y el rol se reasignará en startNewRound
-            newPlayer.role = "player"
           }
 
           const updatedGame = await GameService.addPlayerToGame(gameCode, newPlayer)
@@ -327,11 +319,6 @@ export class SocketHandlers {
           game.discussionTime = Math.max(30, Math.min(600, action.discussionTime || game.discussionTime))
           game.votingTime = Math.max(10, Math.min(300, action.votingTime || game.votingTime))
           
-          // Actualizar configuración de cambio de impostor
-          if (action.changeImpostorEachRound !== undefined) {
-            game.changeImpostorEachRound = action.changeImpostorEachRound
-          }
-          
           await GameService.saveGame(game)
 
           // Emitir el juego actualizado con los valores validados
@@ -342,7 +329,6 @@ export class SocketHandlers {
             cluesTime: game.cluesTime,
             discussionTime: game.discussionTime,
             votingTime: game.votingTime,
-            changeImpostorEachRound: game.changeImpostorEachRound,
           })
         } else {
           socket.emit("error", { message: "Solo el host puede actualizar la configuración" })
@@ -359,7 +345,7 @@ export class SocketHandlers {
     // Detener timer antes de procesar
     TimerService.stopTimer(gameCode)
 
-    const { winner } = GameLogic.processVotes(game)
+    const { ejectedPlayer, isTie, winner } = GameLogic.processVotes(game)
 
     if (winner) {
       // Ronda terminada

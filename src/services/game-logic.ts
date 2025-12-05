@@ -34,11 +34,8 @@ export class GameLogic {
    * Inicia una nueva ronda: asigna palabra e impostor
    */
   static async startNewRound(game: GameState): Promise<void> {
-    // Asignar nuevo impostor solo si la configuración lo permite o es la primera ronda
-    if (game.changeImpostorEachRound || game.round === 0 || !game.impostorId) {
-      game.impostorId = this.assignImpostor(game.players)
-    }
-    // Si no cambia cada ronda y ya hay un impostor, mantener el mismo
+    // Asignar nuevo impostor
+    game.impostorId = this.assignImpostor(game.players)
 
     // Obtener palabra aleatoria (usando Gemini si está disponible)
     const wordData = await WordsService.getRandomWord()
@@ -58,10 +55,6 @@ export class GameLogic {
         player.hasGivenClue = false
         player.clue = undefined
         player.hasVoted = false
-        // Actualizar el rol del jugador según el impostor actual
-        if (game.impostorId) {
-          player.role = player.id === game.impostorId ? "impostor" : "player"
-        }
       }
     })
   }
@@ -174,22 +167,13 @@ export class GameLogic {
     // El juego termina cuando se alcanza el número máximo de rondas
     if (game.round >= game.maxRounds) {
       // Determinar ganador por puntos
-      // Comparar el impostor con el jugador con más puntos (no la suma de todos)
-      const players = Object.values(game.players).filter(
-        (p) => p.role === "player" && p.status === "alive"
-      )
-      
-      if (players.length === 0) {
-        // Si no hay jugadores vivos, el impostor gana por defecto
-        return "impostor"
-      }
+      const playerPoints = Object.values(game.players)
+        .filter((p) => p.role === "player" && p.status === "alive")
+        .reduce((sum, p) => sum + p.points, 0)
 
-      const maxPlayerPoints = Math.max(...players.map((p) => p.points), 0)
       const impostorPoints = game.players[game.impostorId!]?.points || 0
 
-      // Si el impostor tiene más o igual puntos que el mejor jugador, gana
-      // Si hay empate, el impostor gana (ventaja para el impostor)
-      return impostorPoints >= maxPlayerPoints ? "impostor" : "players"
+      return impostorPoints >= playerPoints ? "impostor" : "players"
     }
 
     return null

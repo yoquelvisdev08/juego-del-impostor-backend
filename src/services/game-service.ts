@@ -1,6 +1,7 @@
 import { databases, APPWRITE_CONFIG } from "../config/appwrite"
 import { redis } from "../config/redis"
 import type { GameState, Player, PlayerColor } from "../types"
+import { WordsService } from "./words-service"
 
 const AVAILABLE_COLORS: PlayerColor[] = [
   "red",
@@ -66,7 +67,6 @@ export class GameService {
       discussionTime: 180, // 3 minutos
       votingTime: 60, // 1 minuto
       timeLeft: 0,
-      changeImpostorEachRound: true, // Por defecto, el impostor cambia cada ronda
       createdAt: Date.now(),
     }
 
@@ -169,7 +169,6 @@ export class GameService {
       discussionTime: oldGame.discussionTime || 180,
       votingTime: oldGame.votingTime || 60,
       timeLeft: 0,
-      changeImpostorEachRound: oldGame.changeImpostorEachRound !== undefined ? oldGame.changeImpostorEachRound : true,
       createdAt: oldGame.createdAt || doc.createdAt || Date.now(),
     }
   }
