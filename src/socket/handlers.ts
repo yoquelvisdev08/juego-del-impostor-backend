@@ -251,7 +251,6 @@ export class SocketHandlers {
   }
 
   private setupHeartbeat(socket: Socket) {
-    const heartbeatKey = `heartbeat:${socket.id}`
     let lastPong = Date.now()
     let missedPongs = 0
 
@@ -380,7 +379,7 @@ export class SocketHandlers {
     }
   }
 
-  private async logDisconnection(gameCode: string, playerId: string) {
+  private async logDisconnection(gameCode: string, _playerId: string) {
     try {
       await this.updateActiveUsers(gameCode, -1)
     } catch (error) {
@@ -601,7 +600,7 @@ export class SocketHandlers {
     // Detener timer antes de procesar
     TimerService.stopTimer(gameCode)
 
-    const { ejectedPlayer, isTie, winner } = GameLogic.processVotes(game)
+    const { winner } = GameLogic.processVotes(game)
 
     if (winner) {
       // Ronda terminada
