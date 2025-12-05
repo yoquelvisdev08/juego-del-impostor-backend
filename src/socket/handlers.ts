@@ -6,10 +6,22 @@ import type { GameAction, SocketData, GameState } from "../types"
 import { redis } from "../config/redis"
 
 export class SocketHandlers {
-  constructor(private io: Server) {}
+  private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map()
+  private typingUsers: Map<string, Set<string>> = new Map() // gameCode -> Set<playerId>
+  private typingTimeouts: Map<string, NodeJS.Timeout> = new Map() // playerId -> timeout
+
+  constructor(private io: Server) {
+    // Limpiar intervalos de heartbeat periódicamente
+    setInterval(() => {
+      this.cleanupHeartbeats()
+    }, 30000) // Cada 30 segundos
+  }
 
   handleConnection(socket: Socket) {
     console.log(`[Socket] Client connected: ${socket.id}`)
+    
+    // Inicializar heartbeat
+    this.setupHeartbeat(socket)
 
     socket.on("join-game", async (data: { gameCode: string; playerId: string; playerName: string }) => {
       try {
@@ -23,6 +35,11 @@ export class SocketHandlers {
 
         socket.data = { gameCode, playerId, playerName } as SocketData
         await socket.join(`game:${gameCode}`)
+        
+        // Log conexión y actualizar estadísticas
+        await this.logConnection(gameCode, playerId)
+        await this.updateActiveUsers(gameCode, 1)
+        await this.updateActiveRooms(gameCode)
 
         // Si el juego está en progreso, no permitir nuevos jugadores
         if (game.phase !== "lobby" && game.phase !== "resultados") {
@@ -108,6 +125,23 @@ export class SocketHandlers {
         const player = game.players[playerId]
         if (!player || player.status === "eliminated") return
 
+        // Rate limiting: 3 mensajes cada 5 segundos
+        const rateLimitKey = `ratelimit:chat:${gameCode}:${playerId}`
+        const messageCount = await redis.incr(rateLimitKey)
+        
+        if (messageCount === 1) {
+          await redis.expire(rateLimitKey, 5) // Expirar en 5 segundos
+        }
+
+        if (messageCount > 3) {
+          socket.emit("error", { message: "Demasiados mensajes. Espera unos segundos." })
+          await redis.decr(rateLimitKey)
+          return
+        }
+
+        // Limpiar typing indicator
+        this.clearTypingIndicator(gameCode, playerId)
+
         const message = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           playerId,
@@ -119,10 +153,45 @@ export class SocketHandlers {
         await redis.lpush(`game:${gameCode}:messages`, JSON.stringify(message))
         await redis.ltrim(`game:${gameCode}:messages`, 0, 99)
 
+        // Log del mensaje
+        await this.logMessage(gameCode, playerId, "message_sent")
+
         this.io.to(`game:${gameCode}`).emit("new-message", message)
       } catch (error) {
         console.error("[Socket] Error sending message:", error)
+        await this.logError("send-message", error)
       }
+    })
+
+    socket.on("typing-start", async () => {
+      try {
+        const socketData = socket.data as SocketData | undefined
+        if (!socketData) return
+
+        const { gameCode, playerId } = socketData
+        const game = await GameService.getGame(gameCode)
+        if (!game) return
+
+        this.setTypingIndicator(gameCode, playerId)
+      } catch (error) {
+        console.error("[Socket] Error on typing-start:", error)
+      }
+    })
+
+    socket.on("typing-stop", async () => {
+      try {
+        const socketData = socket.data as SocketData | undefined
+        if (!socketData) return
+
+        const { gameCode, playerId } = socketData
+        this.clearTypingIndicator(gameCode, playerId)
+      } catch (error) {
+        console.error("[Socket] Error on typing-stop:", error)
+      }
+    })
+
+    socket.on("ping", () => {
+      socket.emit("pong")
     })
 
     socket.on("get-messages", async () => {
@@ -146,6 +215,13 @@ export class SocketHandlers {
         if (!socketData) return
 
         const { gameCode, playerId } = socketData
+        
+        // Limpiar heartbeat
+        this.clearHeartbeat(socket.id)
+        
+        // Limpiar typing indicator
+        this.clearTypingIndicator(gameCode, playerId)
+
         const game = await GameService.getGame(gameCode)
 
         if (game && game.players[playerId]) {
@@ -163,12 +239,192 @@ export class SocketHandlers {
           }
         }
 
+        // Log desconexión
+        await this.logDisconnection(gameCode, playerId)
+
         console.log(`[Socket] Client disconnected: ${socket.id}`)
       } catch (error) {
         console.error("[Socket] Error on disconnect:", error)
+        await this.logError("disconnect", error)
       }
     })
   }
+
+  private setupHeartbeat(socket: Socket) {
+    const heartbeatKey = `heartbeat:${socket.id}`
+    let lastPong = Date.now()
+    let missedPongs = 0
+
+    // Enviar ping cada 12 segundos
+    const pingInterval = setInterval(() => {
+      if (!socket.connected) {
+        clearInterval(pingInterval)
+        this.heartbeatIntervals.delete(socket.id)
+        return
+      }
+
+      const timeSinceLastPong = Date.now() - lastPong
+      
+      // Si no hay respuesta en 15 segundos, desconectar
+      if (timeSinceLastPong > 15000) {
+        missedPongs++
+        if (missedPongs >= 2) {
+          console.log(`[Socket] Heartbeat timeout for ${socket.id}, disconnecting...`)
+          clearInterval(pingInterval)
+          this.heartbeatIntervals.delete(socket.id)
+          socket.disconnect()
+          return
+        }
+      }
+
+      socket.emit("ping")
+    }, 12000) // Ping cada 12 segundos
+
+    socket.on("pong", () => {
+      lastPong = Date.now()
+      missedPongs = 0
+    })
+
+    this.heartbeatIntervals.set(socket.id, pingInterval)
+  }
+
+  private clearHeartbeat(socketId: string) {
+    const interval = this.heartbeatIntervals.get(socketId)
+    if (interval) {
+      clearInterval(interval)
+      this.heartbeatIntervals.delete(socketId)
+    }
+  }
+
+  private cleanupHeartbeats() {
+    // Limpiar intervalos de sockets desconectados
+    for (const [socketId, interval] of this.heartbeatIntervals.entries()) {
+      const socket = this.io.sockets.sockets.get(socketId)
+      if (!socket || !socket.connected) {
+        clearInterval(interval)
+        this.heartbeatIntervals.delete(socketId)
+      }
+    }
+  }
+
+  private setTypingIndicator(gameCode: string, playerId: string) {
+    if (!this.typingUsers.has(gameCode)) {
+      this.typingUsers.set(gameCode, new Set())
+    }
+    
+    const typingSet = this.typingUsers.get(gameCode)!
+    if (!typingSet.has(playerId)) {
+      typingSet.add(playerId)
+      this.io.to(`game:${gameCode}`).emit("typing-users", Array.from(typingSet))
+    }
+
+    // Auto-limpiar después de 3 segundos de inactividad
+    const existingTimeout = this.typingTimeouts.get(playerId)
+    if (existingTimeout) {
+      clearTimeout(existingTimeout)
+    }
+
+    const timeout = setTimeout(() => {
+      this.clearTypingIndicator(gameCode, playerId)
+    }, 3000)
+
+    this.typingTimeouts.set(playerId, timeout)
+  }
+
+  private clearTypingIndicator(gameCode: string, playerId: string) {
+    const typingSet = this.typingUsers.get(gameCode)
+    if (typingSet && typingSet.has(playerId)) {
+      typingSet.delete(playerId)
+      this.io.to(`game:${gameCode}`).emit("typing-users", Array.from(typingSet))
+      
+      if (typingSet.size === 0) {
+        this.typingUsers.delete(gameCode)
+      }
+    }
+
+    const timeout = this.typingTimeouts.get(playerId)
+    if (timeout) {
+      clearTimeout(timeout)
+      this.typingTimeouts.delete(playerId)
+    }
+  }
+
+  private async logMessage(gameCode: string, playerId: string, event: string) {
+    try {
+      const logKey = `logs:${gameCode}:messages`
+      const logEntry = {
+        timestamp: Date.now(),
+        playerId,
+        event,
+      }
+      await redis.lpush(logKey, JSON.stringify(logEntry))
+      await redis.ltrim(logKey, 0, 999) // Mantener últimos 1000 logs
+      await redis.expire(logKey, 86400 * 7) // Expirar en 7 días
+    } catch (error) {
+      console.error("[Logs] Error logging message:", error)
+    }
+  }
+
+  private async logError(event: string, error: any) {
+    try {
+      const errorKey = `logs:errors:${Date.now()}`
+      const errorEntry = {
+        timestamp: Date.now(),
+        event,
+        error: error?.message || String(error),
+        stack: error?.stack,
+      }
+      await redis.setex(errorKey, 86400 * 7, JSON.stringify(errorEntry)) // 7 días
+    } catch (logError) {
+      console.error("[Logs] Error logging error:", logError)
+    }
+  }
+
+  private async logDisconnection(gameCode: string, playerId: string) {
+    try {
+      await this.updateActiveUsers(gameCode, -1)
+    } catch (error) {
+      console.error("[Logs] Error logging disconnection:", error)
+    }
+  }
+
+  private async updateActiveUsers(gameCode: string, delta: number) {
+    try {
+      const key = `stats:${gameCode}:activeUsers`
+      const current = await redis.get(key)
+      const newCount = Math.max(0, (parseInt(current || "0") + delta))
+      await redis.setex(key, 3600, newCount.toString()) // Expirar en 1 hora
+    } catch (error) {
+      console.error("[Logs] Error updating active users:", error)
+    }
+  }
+
+  private async updateActiveRooms(gameCode: string) {
+    try {
+      const key = `stats:activeRooms`
+      await redis.sadd(key, gameCode)
+      await redis.expire(key, 3600) // Expirar en 1 hora
+    } catch (error) {
+      console.error("[Logs] Error updating active rooms:", error)
+    }
+  }
+
+  private async logConnection(gameCode: string, playerId: string) {
+    try {
+      const logKey = `logs:${gameCode}:connections`
+      const logEntry = {
+        timestamp: Date.now(),
+        playerId,
+        event: "connected",
+      }
+      await redis.lpush(logKey, JSON.stringify(logEntry))
+      await redis.ltrim(logKey, 0, 999) // Mantener últimos 1000 logs
+      await redis.expire(logKey, 86400 * 7) // Expirar en 7 días
+    } catch (error) {
+      console.error("[Logs] Error logging connection:", error)
+    }
+  }
+
 
   private async handleGameAction(socket: Socket, game: GameState, action: GameAction) {
     const socketData = socket.data as SocketData

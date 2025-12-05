@@ -2,11 +2,13 @@ import { GameService } from "./game-service"
 import { GameLogic } from "./game-logic"
 import type { GameState } from "../types"
 import { Server } from "socket.io"
+import { redis } from "../config/redis"
 
 interface GameTimer {
   gameCode: string
   intervalId: NodeJS.Timeout
   game: GameState
+  phaseStartTime: number
 }
 
 const activeTimers = new Map<string, GameTimer>()
@@ -51,6 +53,7 @@ export class TimerService {
       gameCode: game.code,
       intervalId,
       game,
+      phaseStartTime: Date.now(),
     })
   }
 
@@ -58,8 +61,15 @@ export class TimerService {
    * Maneja cuando el tiempo de una fase se agota
    */
   private static async handlePhaseTimeout(io: Server, game: GameState): Promise<void> {
+    const timer = activeTimers.get(game.code)
+    const phaseStartTime = timer?.phaseStartTime || Date.now()
+    
     switch (game.phase) {
       case "pistas": {
+        // Log duración de fase de pistas
+        const duration = Math.floor((Date.now() - phaseStartTime) / 1000)
+        await this.logPhaseDuration(game.code, "pistas", duration)
+        
         // Si el tiempo se agotó pero no todos dieron pista, avanzar igual
         game.phase = "discusion"
         game.timeLeft = game.discussionTime
@@ -71,6 +81,10 @@ export class TimerService {
       }
 
       case "discusion": {
+        // Log duración de fase de discusión
+        const duration = Math.floor((Date.now() - phaseStartTime) / 1000)
+        await this.logPhaseDuration(game.code, "discusion", duration)
+        
         // Avanzar a votación
         game.phase = "votacion"
         game.timeLeft = game.votingTime
@@ -82,6 +96,10 @@ export class TimerService {
       }
 
       case "votacion": {
+        // Log duración de fase de votación
+        const duration = Math.floor((Date.now() - phaseStartTime) / 1000)
+        await this.logPhaseDuration(game.code, "votacion", duration)
+        
         // Procesar votos automáticamente
         const { winner } = GameLogic.processVotes(game)
 
@@ -136,6 +154,35 @@ export class TimerService {
    */
   static restartTimer(io: Server, game: GameState): void {
     this.startTimer(io, game)
+  }
+
+  private static async logPhaseDuration(gameCode: string, phase: string, duration: number) {
+    try {
+      const logKey = `logs:${gameCode}:phases`
+      const logEntry = {
+        timestamp: Date.now(),
+        phase,
+        duration,
+      }
+      await redis.lpush(logKey, JSON.stringify(logEntry))
+      await redis.ltrim(logKey, 0, 999) // Mantener últimos 1000 logs
+      await redis.expire(logKey, 86400 * 7) // Expirar en 7 días
+
+      // Calcular tiempo promedio por fase
+      const allPhases = await redis.lrange(logKey, 0, -1)
+      const phaseDurations = allPhases
+        .map((entry) => JSON.parse(entry))
+        .filter((entry) => entry.phase === phase)
+        .map((entry) => entry.duration)
+
+      if (phaseDurations.length > 0) {
+        const avgDuration = phaseDurations.reduce((a, b) => a + b, 0) / phaseDurations.length
+        const avgKey = `stats:${gameCode}:avgPhaseTime:${phase}`
+        await redis.setex(avgKey, 86400, avgDuration.toString()) // 24 horas
+      }
+    } catch (error) {
+      console.error("[Logs] Error logging phase duration:", error)
+    }
   }
 }
 
