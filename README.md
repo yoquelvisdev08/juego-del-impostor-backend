@@ -26,10 +26,11 @@ Para evitar el límite de atributos en Appwrite, usamos una estructura simplific
 
 - `code` (string, required, unique) - Código de la partida (usado como ID del documento)
 - `gameState` (string, required) - **JSON stringificado con TODO el estado del juego**
-  - Incluye: players, votes, phase, hostId, impostorCount, totalTasks, completedTasks, emergencyMeetingsLeft, discussionTime, votingTime, meetingReason, votes, sabotageActive, createdAt
+  - Incluye: id, code, phase, hostId, players, currentWord, currentCategory, impostorId, clues, votes, round, maxRounds, cluesTime, discussionTime, votingTime, timeLeft, winner, createdAt
+  - **Nota:** Este juego se basa en palabras/pistas, NO incluye mecánicas tipo Among Us (tareas, sabotajes, eliminaciones)
 - `updatedAt` (integer, required) - Timestamp de última actualización
 
-**Nota:** Esta estructura usa solo 3 atributos en lugar de 13+, evitando el límite de columnas de Appwrite.
+**Nota:** Esta estructura usa solo 3 atributos en lugar de 13+, evitando el límite de columnas de Appwrite. El juego se basa en palabras/pistas, no en tareas tipo Among Us.
 
 #### Redis Cloud
 
