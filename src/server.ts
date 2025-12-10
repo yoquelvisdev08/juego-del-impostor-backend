@@ -5,6 +5,7 @@ import { Server } from "socket.io"
 import cors from "cors"
 import { SocketHandlers } from "./socket/handlers"
 import { GameService } from "./services/game-service"
+import { StatsService } from "./services/stats-service"
 import { redis } from "./config/redis"
 
 const app = express()
@@ -85,6 +86,61 @@ app.delete("/api/games/:code", async (req, res) => {
   } catch (error: any) {
     console.error("[API] Error deleting game:", error)
     res.status(500).json({ error: error.message || "Error al eliminar la partida" })
+  }
+})
+
+// Endpoints de Estadísticas
+app.get("/api/stats/general", async (_req, res) => {
+  try {
+    const stats = await StatsService.getGeneralStats()
+    return res.json(stats)
+  } catch (error: any) {
+    console.error("[API] Error getting general stats:", error)
+    return res.status(500).json({ error: error.message || "Error al obtener estadísticas" })
+  }
+})
+
+app.get("/api/stats/impostor-wins", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100
+    const wins = await StatsService.getImpostorWins(limit)
+    return res.json(wins)
+  } catch (error: any) {
+    console.error("[API] Error getting impostor wins:", error)
+    return res.status(500).json({ error: error.message || "Error al obtener victorias del impostor" })
+  }
+})
+
+app.get("/api/stats/players-wins", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100
+    const wins = await StatsService.getPlayersWins(limit)
+    return res.json(wins)
+  } catch (error: any) {
+    console.error("[API] Error getting players wins:", error)
+    return res.status(500).json({ error: error.message || "Error al obtener victorias de jugadores" })
+  }
+})
+
+app.get("/api/stats/impostor/:impostorId", async (req, res) => {
+  try {
+    const { impostorId } = req.params
+    const stats = await StatsService.getImpostorStats(impostorId)
+    return res.json(stats)
+  } catch (error: any) {
+    console.error("[API] Error getting impostor stats:", error)
+    return res.status(500).json({ error: error.message || "Error al obtener estadísticas del impostor" })
+  }
+})
+
+app.post("/api/stats/query", async (req, res) => {
+  try {
+    const query = req.body
+    const results = await StatsService.queryGames(query)
+    return res.json(results)
+  } catch (error: any) {
+    console.error("[API] Error querying stats:", error)
+    return res.status(500).json({ error: error.message || "Error al consultar estadísticas" })
   }
 })
 

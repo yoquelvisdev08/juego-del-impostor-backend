@@ -68,18 +68,18 @@ export class SocketHandlers {
           }
 
           const updatedGame = await GameService.addPlayerToGame(gameCode, newPlayer)
-          
+
           if (!updatedGame) {
             // Sala llena o error al agregar jugador
             socket.emit("error", { message: "Sala llena" })
             return
           }
 
-          this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
-          this.io.to(`game:${gameCode}`).emit("action", {
-            type: "player-joined",
-            player: newPlayer,
-          } as GameAction)
+            this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
+            this.io.to(`game:${gameCode}`).emit("action", {
+              type: "player-joined",
+              player: newPlayer,
+            } as GameAction)
         } else {
           socket.emit("game-updated", game)
         }
@@ -549,6 +549,15 @@ export class SocketHandlers {
           game.phase = "resultados"
           game.winner = gameWinner
           await GameService.saveGame(game)
+          
+          // Guardar estadísticas de la partida
+          try {
+            const { StatsService } = await import("../services/stats-service")
+            await StatsService.saveGameResult(game)
+          } catch (error) {
+            console.error("[Handlers] Error saving game stats:", error)
+          }
+          
           this.io.to(`game:${gameCode}`).emit("game-updated", game)
           this.io.to(`game:${gameCode}`).emit("action", { type: "game-ended", winner: gameWinner })
           return
@@ -618,7 +627,18 @@ export class SocketHandlers {
       const gameWinner = GameLogic.checkGameEnd(game)
       if (gameWinner) {
         game.winner = gameWinner
+        game.phase = "resultados"
         await GameService.saveGame(game)
+        
+        // Guardar estadísticas de la partida
+        try {
+          const { StatsService } = await import("../services/stats-service")
+          await StatsService.saveGameResult(game)
+        } catch (error) {
+          console.error("[Handlers] Error saving game stats:", error)
+        }
+        
+        this.io.to(`game:${gameCode}`).emit("game-updated", game)
         this.io.to(`game:${gameCode}`).emit("action", {
           type: "game-ended",
           winner: gameWinner,

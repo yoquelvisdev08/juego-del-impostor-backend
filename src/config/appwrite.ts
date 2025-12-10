@@ -28,5 +28,6 @@ export const APPWRITE_CONFIG = {
   DATABASE_ID: process.env.APPWRITE_DATABASE_ID,
   GAMES_COLLECTION_ID: process.env.APPWRITE_GAMES_COLLECTION_ID || "games",
   PLAYERS_COLLECTION_ID: process.env.APPWRITE_PLAYERS_COLLECTION_ID || "players",
+  STATS_COLLECTION_ID: process.env.APPWRITE_STATS_COLLECTION_ID || "game_stats",
 } as const
 

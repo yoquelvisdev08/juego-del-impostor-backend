@@ -12,7 +12,8 @@
     "verify-appwrite": "tsx scripts/verify-appwrite-optimized.ts",
     "verify-strict": "tsx scripts/verify-strict-appwrite.ts",
     "recreate-collections": "tsx scripts/recreate-collections.ts",
-    "test-connection": "tsx scripts/test-connection.ts"
+    "test-connection": "tsx scripts/test-connection.ts",
+    "create-stats-collection": "tsx scripts/create-stats-collection.ts"
   },
   "keywords": [
     "game",
