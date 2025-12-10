@@ -4,6 +4,7 @@ import { GameLogic } from "../services/game-logic"
 import { TimerService } from "../services/timer-service"
 import type { GameAction, SocketData, GameState } from "../types"
 import { redis } from "../config/redis"
+import { containsSecretWord, filterSecretWord } from "../utils/word-filter"
 
 export class SocketHandlers {
   private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map()
@@ -75,12 +76,37 @@ export class SocketHandlers {
             return
           }
 
-            this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
+          this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
+          this.io.to(`game:${gameCode}`).emit("action", {
+            type: "player-joined",
+            player: newPlayer,
+          } as GameAction)
+        } else {
+          // Jugador reconectado: actualizar su estado sin crear duplicado
+          const existingPlayer = game.players[playerId]
+          
+          // Si el jugador estaba eliminado, no permitir reconexión durante el juego
+          if (existingPlayer.status === "eliminated" && game.phase !== "lobby" && game.phase !== "resultados") {
+            socket.emit("error", { 
+              message: "No puedes reconectarte si ya fuiste eliminado. Espera a la siguiente ronda." 
+            })
+            return
+          }
+
+          // Actualizar nombre si cambió (por si el usuario cambió de dispositivo)
+          if (existingPlayer.name !== playerName) {
+            existingPlayer.name = playerName
+            await GameService.saveGame(game)
+          }
+
+          // Notificar reconexión solo si el juego está en progreso
+          if (game.phase !== "lobby") {
             this.io.to(`game:${gameCode}`).emit("action", {
               type: "player-joined",
-              player: newPlayer,
+              player: existingPlayer,
             } as GameAction)
-        } else {
+          }
+
           socket.emit("game-updated", game)
         }
 
@@ -125,6 +151,14 @@ export class SocketHandlers {
         const player = game.players[playerId]
         if (!player || player.status === "eliminated") return
 
+        // Validar que el mensaje no contenga la palabra secreta
+        if (game.currentWord && containsSecretWord(data.content, game.currentWord)) {
+          socket.emit("error", { 
+            message: "No puedes escribir la palabra secreta en el chat. Intenta con una pista más sutil." 
+          })
+          return
+        }
+
         // Rate limiting: 3 mensajes cada 5 segundos
         const rateLimitKey = `ratelimit:chat:${gameCode}:${playerId}`
         const messageCount = await redis.incr(rateLimitKey)
@@ -142,11 +176,14 @@ export class SocketHandlers {
         // Limpiar typing indicator
         this.clearTypingIndicator(gameCode, playerId)
 
+        // Filtrar la palabra secreta del mensaje (por si acaso)
+        const filteredContent = filterSecretWord(data.content.trim(), game.currentWord)
+
         const message = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           playerId,
           playerName: player.name,
-          content: data.content.trim(),
+          content: filteredContent,
           timestamp: Date.now(),
         }
 
@@ -225,17 +262,28 @@ export class SocketHandlers {
         const game = await GameService.getGame(gameCode)
 
         if (game && game.players[playerId]) {
-          await GameService.removePlayerFromGame(gameCode, playerId)
-          const updatedGame = await GameService.getGame(gameCode)
+          // Solo eliminar jugador si el juego está en lobby o resultados
+          // Durante el juego, mantener el jugador para permitir reconexión
+          if (game.phase === "lobby" || game.phase === "resultados") {
+            await GameService.removePlayerFromGame(gameCode, playerId)
+            const updatedGame = await GameService.getGame(gameCode)
 
-          if (updatedGame) {
-            this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
-            this.io.to(`game:${gameCode}`).emit("action", {
-              type: "player-left",
-              playerId,
-            } as GameAction)
+            if (updatedGame) {
+              this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
+              this.io.to(`game:${gameCode}`).emit("action", {
+                type: "player-left",
+                playerId,
+              } as GameAction)
+            } else {
+              this.io.to(`game:${gameCode}`).emit("game-deleted")
+            }
           } else {
-            this.io.to(`game:${gameCode}`).emit("game-deleted")
+            // Durante el juego: solo notificar desconexión temporal, no eliminar jugador
+            // Esto permite reconexión sin perder el estado del jugador
+            console.log(`[Socket] Player ${playerId} disconnected temporarily (game in progress)`)
+            
+            // Opcional: marcar como desconectado pero mantener en el juego
+            // El jugador puede reconectarse y continuar
           }
         }
 
@@ -457,9 +505,20 @@ export class SocketHandlers {
       case "clue-submitted": {
         const player = game.players[action.playerId]
         if (player && player.status === "alive" && !player.hasGivenClue) {
+          // Validar que la pista no contenga la palabra secreta
+          if (game.currentWord && containsSecretWord(action.clue, game.currentWord)) {
+            socket.emit("error", { 
+              message: "No puedes escribir la palabra secreta en tu pista. Intenta con una pista más sutil." 
+            })
+            return
+          }
+
+          // Filtrar la palabra secreta de la pista (por si acaso)
+          const filteredClue = filterSecretWord(action.clue, game.currentWord)
+
           player.hasGivenClue = true
-          player.clue = action.clue
-          game.clues[action.playerId] = action.clue
+          player.clue = filteredClue
+          game.clues[action.playerId] = filteredClue
           await GameService.saveGame(game)
 
           this.io.to(`game:${gameCode}`).emit("game-updated", game)
