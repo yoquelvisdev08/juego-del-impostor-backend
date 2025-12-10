@@ -107,10 +107,13 @@ Elimina una partida
 
 ### Cliente → Servidor
 
-- `join-game`: Unirse a una partida
+- `join-game`: Unirse a una partida (con reconexión automática)
 - `game-action`: Enviar acción del juego
-- `send-message`: Enviar mensaje en el chat
+- `send-message`: Enviar mensaje en el chat (con validación de palabra secreta)
 - `get-messages`: Obtener mensajes del chat
+- `typing-start`: Indicar que está escribiendo
+- `typing-stop`: Indicar que dejó de escribir
+- `ping`: Heartbeat para mantener conexión activa
 
 ### Servidor → Cliente
 
@@ -119,6 +122,8 @@ Elimina una partida
 - `action`: Acción del juego
 - `new-message`: Nuevo mensaje en el chat
 - `messages`: Lista de mensajes
+- `typing-users`: Lista de usuarios escribiendo
+- `pong`: Respuesta al heartbeat
 - `error`: Error ocurrido
 - `game-deleted`: Partida eliminada
 
@@ -133,4 +138,61 @@ El flujo es:
 1. Estado del juego se guarda en Redis (rápido, tiempo real)
 2. Estado se sincroniza con Appwrite (persistencia)
 3. Cambios se emiten a todos los clientes vía Socket.io
+4. Estadísticas se guardan automáticamente cuando termina una partida
+
+## Características de Seguridad
+
+### Validación de Pistas y Mensajes
+
+El sistema incluye un filtro automático que previene que los jugadores escriban la palabra secreta:
+
+- **Detección inteligente**: Normaliza texto (sin acentos, espacios, mayúsculas)
+- **Validación en tiempo real**: Rechaza mensajes/pistas que contengan la palabra secreta
+- **Filtrado automático**: Reemplaza la palabra secreta con asteriscos si se detecta
+- **Mensajes claros**: Informa al usuario por qué se rechazó el mensaje
+
+**Archivo**: `src/utils/word-filter.ts`
+
+### Sistema de Reconexión
+
+El sistema maneja reconexiones de forma inteligente:
+
+- **Sin jugadores fantasma**: Los jugadores que se reconectan no se duplican
+- **Estado preservado**: Puntos, pistas y votos se mantienen al reconectar
+- **Reconexión durante el juego**: Los jugadores pueden reconectarse sin perder progreso
+- **Eliminación inteligente**: Solo elimina jugadores en lobby o resultados, no durante el juego
+
+**Comportamiento**:
+- En `lobby` o `resultados`: Se elimina el jugador al desconectarse
+- Durante el juego (`pistas`, `discusion`, `votacion`): Se mantiene para permitir reconexión
+
+## Sistema de Estadísticas
+
+El backend incluye un sistema completo de estadísticas:
+
+- **Guardado automático**: Los resultados se guardan en Appwrite cuando termina una partida
+- **API RESTful**: Endpoints para consultar estadísticas
+- **Consultas complejas**: Filtrado por múltiples criterios con índices optimizados
+
+### Endpoints de Estadísticas
+
+- `GET /api/stats/general` - Estadísticas generales
+- `GET /api/stats/impostor-wins?limit=100` - Victorias del impostor
+- `GET /api/stats/players-wins?limit=100` - Victorias de jugadores
+- `GET /api/stats/impostor/:impostorId` - Estadísticas de un impostor
+- `POST /api/stats/query` - Consulta personalizada
+
+### Configuración
+
+1. Crear la colección de estadísticas:
+   ```bash
+   pnpm run create-stats-collection
+   ```
+
+2. Agregar variable de entorno (opcional):
+   ```env
+   APPWRITE_STATS_COLLECTION_ID=game_stats
+   ```
+
+Para más información, consulta la documentación del frontend: `../juego-del-impostor/docs/ESTADISTICAS.md`
 

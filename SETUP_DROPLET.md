@@ -46,6 +46,7 @@ nano .env
 - `APPWRITE_DATABASE_ID`
 - `APPWRITE_GAMES_COLLECTION_ID`
 - `APPWRITE_PLAYERS_COLLECTION_ID`
+- `APPWRITE_STATS_COLLECTION_ID` (opcional, por defecto: `game_stats`)
 - `REDIS_HOST`
 - `REDIS_PORT`
 - `REDIS_PASSWORD`
@@ -57,19 +58,28 @@ nano .env
 
 Guarda con `Ctrl+O`, `Enter`, `Ctrl+X`
 
-## 4. Instalar dependencias
+## 4. Crear colección de estadísticas (opcional pero recomendado)
+
+```bash
+# Esto creará la colección game_stats en Appwrite
+pnpm run create-stats-collection
+```
+
+**Nota**: Si no ejecutas este comando, el sistema usará el valor por defecto `game_stats` pero la colección debe existir en Appwrite.
+
+## 5. Instalar dependencias
 
 ```bash
 pnpm install
 ```
 
-## 5. Compilar el proyecto
+## 6. Compilar el proyecto
 
 ```bash
 pnpm build
 ```
 
-## 6. Probar que funciona (opcional)
+## 7. Probar que funciona (opcional)
 
 ```bash
 # Ejecutar temporalmente para verificar
@@ -78,7 +88,7 @@ pnpm start
 
 Si ves `[Server] Servidor corriendo en puerto 3001`, presiona `Ctrl+C` para detenerlo.
 
-## 7. Instalar PM2 (Process Manager)
+## 8. Instalar PM2 (Process Manager)
 
 PM2 mantendrá tu aplicación corriendo y la reiniciará automáticamente si se cae.
 
@@ -100,7 +110,7 @@ pm2 startup
 pm2 save
 ```
 
-## 8. Configurar el Firewall
+## 9. Configurar el Firewall
 
 ```bash
 # Permitir SSH (importante, no lo cierres)
@@ -120,7 +130,7 @@ sudo ufw enable
 sudo ufw status
 ```
 
-## 9. Verificar que funciona
+## 10. Verificar que funciona
 
 ```bash
 # Desde el mismo servidor, probar localmente
@@ -129,7 +139,7 @@ curl http://localhost:3001/health
 
 Deberías recibir: `{"status":"ok","timestamp":...}`
 
-## 10. (Opcional) Configurar Nginx como Reverse Proxy
+## 11. (Opcional) Configurar Nginx como Reverse Proxy
 
 Si quieres usar un dominio y SSL, configura Nginx:
 
@@ -169,7 +179,7 @@ sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-## 11. (Opcional) Configurar SSL con Let's Encrypt
+## 12. (Opcional) Configurar SSL con Let's Encrypt
 
 ```bash
 sudo apt install certbot python3-certbot-nginx -y
