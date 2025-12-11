@@ -11,6 +11,61 @@ export class SocketHandlers {
   private typingUsers: Map<string, Set<string>> = new Map() // gameCode -> Set<playerId>
   private typingTimeouts: Map<string, NodeJS.Timeout> = new Map() // playerId -> timeout
 
+  /**
+   * Filtra el estado del juego para un jugador específico
+   * Oculta currentWord y currentCategory si el jugador es el impostor
+   */
+  private getGameStateForPlayer(game: GameState, playerId: string): GameState {
+    const player = game.players[playerId]
+    if (!player) return game
+
+    // Si el jugador es el impostor, ocultar la palabra secreta
+    if (player.role === "impostor") {
+      return {
+        ...game,
+        currentWord: null,
+        currentCategory: null,
+      }
+    }
+
+    return game
+  }
+
+  /**
+   * Emite el estado del juego filtrado a todos los jugadores del juego
+   * Cada jugador recibe el estado con currentWord filtrado según su rol
+   */
+  private emitGameUpdatedToAll(gameCode: string, game: GameState): void {
+    const room = this.io.sockets.adapter.rooms.get(`game:${gameCode}`)
+    if (!room) return
+
+    // Enviar estado filtrado a cada socket en el room
+    room.forEach((socketId) => {
+      const socket = this.io.sockets.sockets.get(socketId)
+      if (!socket) return
+
+      const socketData = socket.data as SocketData | undefined
+      if (!socketData || !socketData.playerId) return
+
+      const filteredGame = this.getGameStateForPlayer(game, socketData.playerId)
+      socket.emit("game-updated", filteredGame)
+    })
+  }
+
+  /**
+   * Emite el estado del juego filtrado a un socket específico
+   */
+  private emitGameUpdatedToSocket(socket: Socket, game: GameState): void {
+    const socketData = socket.data as SocketData | undefined
+    if (!socketData || !socketData.playerId) {
+      socket.emit("game-updated", game)
+      return
+    }
+
+    const filteredGame = this.getGameStateForPlayer(game, socketData.playerId)
+    socket.emit("game-updated", filteredGame)
+  }
+
   constructor(private io: Server) {
     // Limpiar intervalos de heartbeat periódicamente
     setInterval(() => {
@@ -76,7 +131,7 @@ export class SocketHandlers {
             return
           }
 
-          this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
+          this.emitGameUpdatedToAll(gameCode, updatedGame)
           this.io.to(`game:${gameCode}`).emit("action", {
             type: "player-joined",
             player: newPlayer,
@@ -107,7 +162,7 @@ export class SocketHandlers {
             } as GameAction)
           }
 
-          socket.emit("game-updated", game)
+          this.emitGameUpdatedToSocket(socket, game)
         }
 
         socket.emit("joined-game", { gameCode, playerId })
@@ -126,6 +181,11 @@ export class SocketHandlers {
         }
 
         const { gameCode } = socketData
+        if (!gameCode) {
+          socket.emit("error", { message: "No estás conectado a una partida" })
+          return
+        }
+
         const game = await GameService.getGame(gameCode)
         if (!game) {
           socket.emit("error", { message: "Partida no encontrada" })
@@ -257,7 +317,13 @@ export class SocketHandlers {
         this.clearHeartbeat(socket.id)
         
         // Limpiar typing indicator
-        this.clearTypingIndicator(gameCode, playerId)
+        if (gameCode) {
+          this.clearTypingIndicator(gameCode, playerId)
+        }
+
+        if (!gameCode) {
+          return // No hay gameCode, no hay nada que hacer
+        }
 
         const game = await GameService.getGame(gameCode)
 
@@ -265,18 +331,18 @@ export class SocketHandlers {
           // Solo eliminar jugador si el juego está en lobby o resultados
           // Durante el juego, mantener el jugador para permitir reconexión
           if (game.phase === "lobby" || game.phase === "resultados") {
-            await GameService.removePlayerFromGame(gameCode, playerId)
-            const updatedGame = await GameService.getGame(gameCode)
+          await GameService.removePlayerFromGame(gameCode, playerId)
+          const updatedGame = await GameService.getGame(gameCode)
 
-            if (updatedGame) {
-              this.io.to(`game:${gameCode}`).emit("game-updated", updatedGame)
-              this.io.to(`game:${gameCode}`).emit("action", {
-                type: "player-left",
-                playerId,
-              } as GameAction)
-            } else {
-              this.io.to(`game:${gameCode}`).emit("game-deleted")
-            }
+          if (updatedGame) {
+              this.emitGameUpdatedToAll(gameCode, updatedGame)
+            this.io.to(`game:${gameCode}`).emit("action", {
+              type: "player-left",
+              playerId,
+            } as GameAction)
+          } else {
+            this.io.to(`game:${gameCode}`).emit("game-deleted")
+          }
           } else {
             // Durante el juego: solo notificar desconexión temporal, no eliminar jugador
             // Esto permite reconexión sin perder el estado del jugador
@@ -491,14 +557,20 @@ export class SocketHandlers {
         }
 
         // Iniciar primera ronda
+        console.log(`[Handlers] 🎮 Iniciando juego ${gameCode} con ${Object.keys(game.players).length} jugadores`)
         await GameLogic.startNewRound(game)
+        console.log(`[Handlers] ✅ Nueva ronda iniciada: fase=${game.phase}, tiempo=${game.timeLeft}s, palabra=${game.currentWord ? '***' : 'null'}`)
         await GameService.saveGame(game)
+        console.log(`[Handlers] 💾 Estado del juego guardado`)
 
         // Iniciar timer sincronizado
+        console.log(`[Handlers] ⏱️ Llamando TimerService.startTimer() para juego ${gameCode}`)
         TimerService.startTimer(this.io, game)
+        console.log(`[Handlers] ✅ Timer iniciado`)
 
-        this.io.to(`game:${gameCode}`).emit("game-updated", game)
+        this.emitGameUpdatedToAll(gameCode, game)
         this.io.to(`game:${gameCode}`).emit("action", action)
+        console.log(`[Handlers] 📢 Eventos game-updated y game-started emitidos`)
         break
       }
 
@@ -521,7 +593,7 @@ export class SocketHandlers {
           game.clues[action.playerId] = filteredClue
           await GameService.saveGame(game)
 
-          this.io.to(`game:${gameCode}`).emit("game-updated", game)
+          this.emitGameUpdatedToAll(gameCode, game)
           this.io.to(`game:${gameCode}`).emit("action", action)
 
           // Verificar si todos dieron pista
@@ -535,7 +607,7 @@ export class SocketHandlers {
             game.timeLeft = game.discussionTime
             await GameService.saveGame(game)
             TimerService.restartTimer(this.io, game)
-            this.io.to(`game:${gameCode}`).emit("game-updated", game)
+            this.emitGameUpdatedToAll(gameCode, game)
             this.io.to(`game:${gameCode}`).emit("action", { type: "phase-changed", phase: "discusion" })
           }
         }
@@ -560,7 +632,7 @@ export class SocketHandlers {
             game.phase = "resultados"
             await GameService.saveGame(game)
 
-            this.io.to(`game:${gameCode}`).emit("game-updated", game)
+            this.emitGameUpdatedToAll(gameCode, game)
             this.io.to(`game:${gameCode}`).emit("action", {
               type: "round-ended",
               winner: "impostor",
@@ -580,7 +652,7 @@ export class SocketHandlers {
           player.hasVoted = true
           await GameService.saveGame(game)
 
-          this.io.to(`game:${gameCode}`).emit("game-updated", game)
+          this.emitGameUpdatedToAll(gameCode, game)
           this.io.to(`game:${gameCode}`).emit("action", action)
 
           const allVoted = Object.values(game.players)
@@ -608,7 +680,7 @@ export class SocketHandlers {
           game.phase = "resultados"
           game.winner = gameWinner
           await GameService.saveGame(game)
-          
+
           // Guardar estadísticas de la partida
           try {
             const { StatsService } = await import("../services/stats-service")
@@ -617,7 +689,7 @@ export class SocketHandlers {
             console.error("[Handlers] Error saving game stats:", error)
           }
           
-          this.io.to(`game:${gameCode}`).emit("game-updated", game)
+          this.emitGameUpdatedToAll(gameCode, game)
           this.io.to(`game:${gameCode}`).emit("action", { type: "game-ended", winner: gameWinner })
           return
       }
@@ -629,7 +701,7 @@ export class SocketHandlers {
         // Reiniciar timer
         TimerService.restartTimer(this.io, game)
 
-        this.io.to(`game:${gameCode}`).emit("game-updated", game)
+        this.emitGameUpdatedToAll(gameCode, game)
         this.io.to(`game:${gameCode}`).emit("action", action)
         break
       }
@@ -645,7 +717,7 @@ export class SocketHandlers {
           await GameService.saveGame(game)
 
           // Emitir el juego actualizado con los valores validados
-          this.io.to(`game:${gameCode}`).emit("game-updated", game)
+          this.emitGameUpdatedToAll(gameCode, game)
           this.io.to(`game:${gameCode}`).emit("action", {
             ...action,
             maxRounds: game.maxRounds,
@@ -676,7 +748,7 @@ export class SocketHandlers {
       game.winner = winner
       await GameService.saveGame(game)
 
-      this.io.to(`game:${gameCode}`).emit("game-updated", game)
+      this.emitGameUpdatedToAll(gameCode, game)
       this.io.to(`game:${gameCode}`).emit("action", {
         type: "round-ended",
         winner,
@@ -697,7 +769,7 @@ export class SocketHandlers {
           console.error("[Handlers] Error saving game stats:", error)
         }
         
-        this.io.to(`game:${gameCode}`).emit("game-updated", game)
+        this.emitGameUpdatedToAll(gameCode, game)
         this.io.to(`game:${gameCode}`).emit("action", {
           type: "game-ended",
           winner: gameWinner,
@@ -707,7 +779,7 @@ export class SocketHandlers {
       // Continuar al siguiente round (si no se alcanzó maxRounds)
       game.phase = "resultados"
       await GameService.saveGame(game)
-      this.io.to(`game:${gameCode}`).emit("game-updated", game)
+      this.emitGameUpdatedToAll(gameCode, game)
     }
   }
 }
